@@ -19,15 +19,25 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
+file_names = ["adder_small.qasm"]
 
+# Define the header for the DataFrame
+header = ["Backend", "Name of the circuit", "Optimization Level", "Depth", "Gate Count", "Statevector Fidelity", "Probability Fidelity"]
 
-# Header for the CSV file
-header = ["Name of the circuit", "Non compiled Circuit Depth", "Non compiled Gate Count",
-          "Compiled Circuit Depth", "Compiled Gate Count", 
-          "Statevector Fidelity", "Probability Fidelity"]
+# Create a DataFrame to store the results
+df = pd.DataFrame(columns=header)
 
-# Initialize results
-circuit_results = []
+# Define the file path for the CSV
+csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es01.csv'
+
+# Verifica se il file esiste ed è vuoto
+if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
+    # Se il file non esiste o è vuoto, scrivi l'header
+    df.to_csv(csv_file, mode='w', header=True, index=False)
+else:
+    # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
+    df.to_csv(csv_file, mode='a', header=False, index=False)
+
 
 # Define the two backends
 backend = BasicProvider().get_backend("basic_simulator")
@@ -63,62 +73,100 @@ for name in file_names:
 
     # 4) evaluate the circuit depth and gate count
     print("Not compiled solutions:")
-    nonCompDepth = qc_m.depth()
-    nonCompGateCount = qc_m.count_ops()
+    nonCompDepth = qc.depth()
+    nonCompGateCount = sum(qc.count_ops().values())
     print(f"Circuit depth (non-compiled): {nonCompDepth}")
     print(f"Gate count (non-compiled): {nonCompGateCount}")
+    
+    # Add the non-compiled results to the DataFrame
+    df.loc[len(df)] = ["Basic Simulator", name, 'non compiled', nonCompDepth, nonCompGateCount, None, None]
 
     # 5) compile the circuit considering as basis gates: ry, rx, rz, cx, considering as optimization levels [0, 1, 2, 3] and compute:
     optimization_levels = [0, 1, 2, 3]
     for level in optimization_levels:
         qc_t = transpile(qc, basis_gates=['ry', 'rx', 'rz', 'cx'], optimization_level=level)
     
-    print("Compiled results")
-    depth = qc_t.depth()
-    gateCount = qc_t.count_ops()
-    print(f"Circuit depth: {depth}")
-    print(f"Gate count: {gateCount}")
-
-    # 6) compile the circuit considering the FakeGuadalupeV2, considering as optimization levels [0, 1, 2, 3] and compute
-    print("Backend FakeGuadalupeV2")
-
-    # To see backend properties
-    coupling_map = backend2.configuration().coupling_map
-    # print("Coupling map:", coupling_map)
-
-    #native_gates = backend2.configuration().basis_gates
-    #print("Native gates (basis gates):", native_gates)
-
-    statevector2 = Statevector(qc_t)
-
-    qc_t.measure_all()
-    result2 = backend2.run(qc_t).result()
-    counts2 = result2.get_counts()
-
-    num_qubits2 = qc_t.num_qubits
-    # Generate all possible binary outcomes for num_qubits
-    all_states2 = [''.join(state) for state in product('01', repeat=num_qubits2)]
-    # Calculate probabilities, including zero counts
-    total_shots2 = sum(counts2.values())
-    print(total_shots2)
-    probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states2]
+        print(f"Compiled results. Level: {level}")
+        depth = qc_t.depth()
+        gateCount = sum(qc_t.count_ops().values())
+        print(f"Circuit depth: {depth}")
+        print(f"Gate count: {gateCount}")
+        
+        # Simulate it with Statevector (ideal simulation)
+        statevector2 = Statevector(qc_t)
+        # To compute fidelity between two statevectors
+        statevector_fidelity = np.abs(statevector.inner(statevector2))
+        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
+        
+        # Simulate with BasicProvider (Measurement-based simulation)
+        qc_tm = qc_t.copy()         # copy the circuit
+        qc_tm.measure_all()       # add the measurement
     
-    # To compute fidelity between two statevectors
-    fidelity = np.abs(statevector.inner(statevector2))
-    print(f"Fidelity between non compiled and compiled statevectors: {fidelity} \n")
-    prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
-    print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
+        result2 = backend2.run(qc_tm).result()
+        counts2 = result2.get_counts()
 
-    # Save results in the list
-    circuit_results.append([name, level, nonCompDepth, nonCompGateCount, depth, gateCount, fidelity, prob_fidelity])
+        num_qubits2 = qc_t.num_qubits
+        # Generate all possible binary outcomes for num_qubits
+        all_states2 = [''.join(state) for state in product('01', repeat=num_qubits2)]
+        # Calculate probabilities, including zero counts
+        total_shots2 = sum(counts2.values())
+        print(total_shots2)
+        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states2]
+        
+        prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
+        print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
 
-# Converts results into a Pandas DataFrame
-df = pd.DataFrame(circuit_results, columns=header)
+        # Add results to the DataFrame
+        df.loc[len(df)] = ['Basic Simulator', name, level, depth, gateCount, statevector_fidelity, prob_fidelity]      
+        
 
-# Write the results to the CSV file in "append" mode
-csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es01.csv'
+    # # 6) compile the circuit considering the FakeGuadalupeV2, considering as optimization levels [0, 1, 2, 3] and compute
+    # print("Backend FakeGuadalupeV2")
+
+    # # To see backend properties
+    # coupling_map = backend2.configuration().coupling_map
+    # # print("Coupling map:", coupling_map)
+
+    # #native_gates = backend2.configuration().basis_gates
+    # #print("Native gates (basis gates):", native_gates)
+    # for level in optimization_levels:
+    #     qc_t = transpile(qc, backend=backend, optimization_level=level)
+
+    #     print(f"Compiled results. Level: {level}")
+    #     depth = qc_t.depth()
+    #     gateCount = sum(qc_t.count_ops().values())
+    #     print(f"Circuit depth: {depth}")
+    #     print(f"Gate count: {gateCount}")
+        
+    #     # Simulate it with Statevector
+    #     statevector2 = Statevector(qc_t)
+        
+    #     # Simulate with BasicProvider (Measurement-based simulation)
+        
+
+    #     qc_t.measure_all()
+    #     result2 = backend2.run(qc_t).result()
+    #     counts2 = result2.get_counts()
+
+    #     num_qubits2 = qc_t.num_qubits
+    #     # Generate all possible binary outcomes for num_qubits
+    #     all_states2 = [''.join(state) for state in product('01', repeat=num_qubits2)]
+    #     # Calculate probabilities, including zero counts
+    #     total_shots2 = sum(counts2.values())
+    #     print(total_shots2)
+    #     probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states2]
+    
+    # # To compute fidelity between two statevectors
+    # fidelity = np.abs(statevector.inner(statevector2))
+    # print(f"Fidelity between non compiled and compiled statevectors: {fidelity} \n")
+    # prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
+    # print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
+
+    # # Save results in the list
+    # circuit_results.append([name, level, nonCompDepth, nonCompGateCount, depth, gateCount, fidelity, prob_fidelity])
+
+# Write the DataFrame to CSV file
 df.to_csv(csv_file, mode='a', header=not os.path.exists(csv_file), index=False)
-
 print("Data successfully saved in the file es01.csv")
 
 
