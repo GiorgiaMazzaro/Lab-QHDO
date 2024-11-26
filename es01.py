@@ -8,11 +8,11 @@ import pandas as pd
 import os
 import time
 
-# Inizio del timer
+# Start timer
 start_time = time.time()
 print(f"Starting program... {start_time}")
 
-# Percorsi e file
+# Paths and files
 ABS_PATH = "/home/qhd24_8/gr8_lab4/qasm_files/"
 file_names = [
     "adder_small.qasm", "adder_medium.qasm", "alu-bdd_288.qasm", 
@@ -21,15 +21,19 @@ file_names = [
 ]
 
 
-# Intestazione per il file CSV
+# Header for the CSV file
 header = ["Name of the circuit", "Non compiled Circuit Depth", "Non compiled Gate Count",
           "Compiled Circuit Depth", "Compiled Gate Count", 
           "Statevector Fidelity", "Probability Fidelity"]
 
-# Inizializza i risultati
+# Initialize results
 circuit_results = []
 
-# Loop sui file QASM
+# Define the two backends
+backend = BasicProvider().get_backend("basic_simulator")
+backend2 = FakeGuadalupeV2()
+
+# Loop through QASM files
 for name in file_names:
     filename = os.path.join(ABS_PATH, name)
     print(f"Processing file: {filename}")
@@ -39,13 +43,12 @@ for name in file_names:
     
     # 2) simulate it with Statevector
     statevector = Statevector(qc)
-    print(np.abs(statevector.inner(statevector)))
+    print(f"Initial statevector: {statevector}")
 
     # 3) copy the circuit, add the measurement and simulate with the BasicProvider;
     qc_m = qc.copy()         # copy the circuit
     qc_m.measure_all()       # add the measurement
 
-    backend = BasicProvider().get_backend("basic_simulator")
     result = backend.run(qc_m).result()
     counts = result.get_counts()
     print("Counts:", counts)
@@ -62,8 +65,8 @@ for name in file_names:
     print("Not compiled solutions:")
     nonCompDepth = qc_m.depth()
     nonCompGateCount = qc_m.count_ops()
-    print(f"Circuit depth: {nonCompDepth}")
-    print(f"Gate count: {nonCompGateCount}")
+    print(f"Circuit depth (non-compiled): {nonCompDepth}")
+    print(f"Gate count (non-compiled): {nonCompGateCount}")
 
     # 5) compile the circuit considering as basis gates: ry, rx, rz, cx, considering as optimization levels [0, 1, 2, 3] and compute:
     optimization_levels = [0, 1, 2, 3]
@@ -78,11 +81,10 @@ for name in file_names:
 
     # 6) compile the circuit considering the FakeGuadalupeV2, considering as optimization levels [0, 1, 2, 3] and compute
     print("Backend FakeGuadalupeV2")
-    backend2 = FakeGuadalupeV2()
 
     # To see backend properties
     coupling_map = backend2.configuration().coupling_map
-    print("Coupling map:", coupling_map)
+    # print("Coupling map:", coupling_map)
 
     #native_gates = backend2.configuration().basis_gates
     #print("Native gates (basis gates):", native_gates)
@@ -109,17 +111,18 @@ for name in file_names:
 
     # Save results in the list
     circuit_results.append([name, level, nonCompDepth, nonCompGateCount, depth, gateCount, fidelity, prob_fidelity])
-# Converte i risultati in un DataFrame Pandas
+
+# Converts results into a Pandas DataFrame
 df = pd.DataFrame(circuit_results, columns=header)
 
-# Scrivi i risultati nel file CSV in modalità append
+# Write the results to the CSV file in "append" mode
 csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es01.csv'
 df.to_csv(csv_file, mode='a', header=not os.path.exists(csv_file), index=False)
 
-print("Dati salvati con successo nel file es01.csv")
+print("Data successfully saved in the file es01.csv")
 
 
-# Calcola il tempo totale di esecuzione
+# Compute total time of execution
 end_time = time.time()
 total_time = end_time - start_time
-print(f"Tempo totale di esecuzione: {total_time:.2f} secondi")
+print(f"Total time of execution: {total_time:.2f} seconds")
