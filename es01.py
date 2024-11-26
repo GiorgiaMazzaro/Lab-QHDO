@@ -84,23 +84,6 @@ for name in file_names:
     coupling_map = backend2.configuration().coupling_map
     print("Coupling map:", coupling_map)
 
-    properties = backend2.properties()
-    print("Properties:", properties)
-
-    # Extract calibration data for each qubit
-    print("\n--- Qubit Properties ---")
-    for qubit_index in range(len(properties.qubits)):
-        print(f"Qubit {qubit_index}:")
-        for item in properties.qubits[qubit_index]:
-            print(f" {item.name}: {item.value} {item.unit}")
-
-    # Extract gate errors for each gate
-    print("\n--- Gate Properties ---")
-    for gate in properties.gates:
-        print(f"Gate: {gate.gate} on qubits {gate.qubits}")
-        for param in gate.parameters:
-            print(f" {param.name}: {param.value} {param.unit}")
-
     #native_gates = backend2.configuration().basis_gates
     #print("Native gates (basis gates):", native_gates)
 
