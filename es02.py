@@ -12,7 +12,7 @@ from qiskit.transpiler import CouplingMap
 from qiskit.transpiler.passes import BasicSwap
 from qiskit.transpiler import PassManager
 
-# Inizio del timer
+# Start timer
 start_time = time.time()
 print(f"Starting program... {start_time}")
 
@@ -23,6 +23,8 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
+file_names = ["adder_small.qasm"]
+
 csv_file = '/home/qhd24_8/gr8_lab4/es01/es02-FRA.csv'
 
 
@@ -104,7 +106,8 @@ def process_qasm_file(qasm_file, native_gates):
     """Leggi un file QASM, verifica i gate e traduci quelli non nativi."""
     # Carica il circuito dal file QASM
     circuit = QuantumCircuit.from_qasm_file(qasm_file)
-    
+    num_qubits = circuit.num_qubits      # è già un parametro di dominio pubblico, che posso chiamare anche fuori dalla funzione?
+    print(num_qubits)
     # Crea un nuovo circuito con gli stessi qubit
     translated_circuit = QuantumCircuit(circuit.num_qubits)
     
@@ -124,9 +127,20 @@ def process_qasm_file(qasm_file, native_gates):
     
     return translated_circuit
 
+# 
+def allowedConnections(backend):     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
+        """Crea una semplice struttura che in futuro ci permette di controllare se due qubit sono connessi"""
+#     for instr in backend.instructions:
+#         print(instr)
+    return connections
+
 
 #Funzione che gestisce la connettività (SWAPS)
  #DA FINIRE
+def routing():
+        """_summary_
+        """
+
     
 
 
@@ -140,15 +154,40 @@ for name in file_names:
     filename = os.path.join(ABS_PATH, name)
     print(f"Processing file: {filename}")
     
-    try:
-        
+    translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
+    print(translated_circuit)
+    print(num_qubits)
+    
+    # Salvare la topologia delle connessioni. backend.instructions dizionario 
+    # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
+    connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
+    for instr in backend.instructions:
+        print(instr)
+    
+    # Trivial mapping
+    #map = [i in range()]
+    
+    
+    
+    # Prima di applicare l'istruzione "compilata", 
+    # isConnected()  che ti dice se è un'operazione lecita (sono connessi i due qubit di una ): restituisce 1 (True)
+    if isConneceted():   #applica istruzione sui qubit fisici 
+        # cx(0,1)   ---> cx(map[0],map[1])  perché ora il qubit logico 0 è mappato nel qubit fisico map[i]
+
+    # Altrimenti routing: SWAP(finché non avvicini) e scambiare l'array
+    
+    
+    
+    # Fidelity check: abbiamo fatto un buon lavoro?
+    # Validate it using the provided qasm file, using the fidelity compared to the not compiled circuit results.
+
         
 
 
     
 
 
-       """
+"""
     _# Memorizzare i risultati
          results.append({
         "Name of the circuit": file_name,
@@ -159,22 +198,18 @@ for name in file_names:
         "Statevector Fidelity": statevector_fidelity,
         "Probability Fidelity": probability_fidelity
     })
-       """
+"""
        
-    
-    except Exception as e:
-        print(f"Errore durante il processamento di {name}: {e}")
-        continue
 
 # Salvare i risultati in un file CSV
 df = pd.DataFrame(results)
 df.to_csv(csv_file, index=False)
 print(f"Results saved to {csv_file}")
 
-# Fine del timer
+# Compute total time of execution
 end_time = time.time()
-print(f"Ending program... {end_time}")
-print(f"Elapsed time: {end_time - start_time} seconds")
+total_time = end_time - start_time
+print(f"Total time of execution: {total_time:.2f} seconds")
 
 
     
