@@ -11,6 +11,7 @@ import time
 from qiskit.transpiler import CouplingMap
 from qiskit.transpiler.passes import BasicSwap
 from qiskit.transpiler import PassManager
+from collections import deque
 
 # Start timer
 start_time = time.time()
@@ -34,6 +35,7 @@ results = []
 # Backend simulato e gate nativi
 backend = FakeGuadalupeV2()
 native_gates = backend.configuration().basis_gates
+max_qubits = backend.configuration().num_qubits    # Ottieni il numero di qubit disponibili dal backend
 
 
 #Funzione che traduce i gate non nativi in una sequenza di gate nativi
@@ -102,12 +104,11 @@ def translate_gate_to_native(gate, qargs):
 
 
 #Funzione che legge il file
-def process_qasm_file(qasm_file, native_gates):
+def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit è fissato dal backend (16 per fakeguadalupe)
     """Leggi un file QASM, verifica i gate e traduci quelli non nativi."""
     # Carica il circuito dal file QASM
     circuit = QuantumCircuit.from_qasm_file(qasm_file)
     num_qubits = circuit.num_qubits      # è già un parametro di dominio pubblico, che posso chiamare anche fuori dalla funzione?
-    print(num_qubits)
     # Crea un nuovo circuito con gli stessi qubit
     translated_circuit = QuantumCircuit(circuit.num_qubits)
     
@@ -195,15 +196,98 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
     
     return mapping
 
-#Funzione che gestisce la connettività (SWAPS)
- #DA FINIRE
-def applyRouting(connections, physical_q1, physical_q2, mapping):
-        """Per trovare il percorso minimo tra due punti non direttamente connessi, usa o BFS o DFS o Dijstrka
-        """
-
+def bfs(connections, start, end):
+    """Trova il percorso minimo tra start e end usando BFS."""
+    # La coda per BFS
+    queue = deque([[start]])
+    visited = set([start])
     
+    while queue:
+        path = queue.popleft()
+        current = path[-1]
+        
+        if current == end:
+            return path  # Restituisce il percorso
+       
+        for neighbor in connections[current]:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                new_path = list(path)
+                new_path.append(neighbor)
+                queue.append(new_path)
+    
+    return []  # Restituisce un percorso vuoto se non c'è connessione
 
+def applyRouting(connections, q1, q2, mapping, compiled_circuit):
+    """
+    Applica il routing per connettere due qubit fisici non direttamente connessi
+    e mantiene il mapping iniziale.
+    
+    Args:
+        connections: Lista delle connessioni tra i qubit fisici.
+        q1, q2: Indici dei qubit fisici da connettere.
+        mapping: Mappatura dei qubit logici su quelli fisici.
+        compiled_circuit: Il circuito compilato su cui aggiungere gli SWAP.
+    
+    Returns:
+        dict: Contiene:
+            - 'q1', 'q2': I nuovi indici fisici dei qubit dopo il routing.
+            - 'updated_mapping': La mappatura aggiornata dei qubit logici.
+    """
+    # Trova il percorso minimo da q1 a q2
+    path = bfs(connections, q1, q2)
+    
+    if not path:
+        raise ValueError(f"No path found between qubits {q1} and {q2}.")
+    
+    # Fai lo swap lungo il percorso
+    for i in range(len(path) - 1):
+        # Aggiungi SWAP tra i qubit lungo il percorso
+        compiled_circuit.swap(path[i], path[i + 1])
+        
+        # Aggiorna il mapping
+        for logical_qubit, physical_qubit in enumerate(mapping):
+            if physical_qubit == path[i]:
+                mapping[logical_qubit] = path[i + 1]
+            elif physical_qubit == path[i + 1]:
+                mapping[logical_qubit] = path[i]
+    
+    # Ora q1 e q2 sono connessi, quindi restituiamo la mappatura aggiornata
+    return {'q1': q1, 'q2': q2, 'updated_mapping': mapping}    
 
+# Memorizza i risultati
+def save_results(file_name, original_circuit, compiled_circuit):
+    # Calcolare la profondità e il numero di gate nel circuito originale
+    original_depth = original_circuit.depth()
+    original_gate_count = len(original_circuit.data)
+    
+    # Calcolare la profondità e il numero di gate nel circuito compilato
+    compiled_depth = compiled_circuit.depth()
+    compiled_gate_count = len(compiled_circuit.data)
+    
+    # Calcolare la fedeltà tra il circuito originale e compilato
+    original_state = Statevector.from_instruction(original_circuit)
+    compiled_state = Statevector.from_instruction(compiled_circuit)
+    statevector_fidelity_value = state_fidelity(original_state, compiled_state)
+    
+    # Includere la fedeltà delle probabilità
+    # Se vuoi includere anche la fedeltà basata sulle probabilità, puoi simulare i circuiti e calcolare la fidelità sulle probabilità
+    original_probabilities = original_state.probabilities_dict()
+    compiled_probabilities = compiled_state.probabilities_dict()
+    
+    probability_fidelity_value = sum(min(original_probabilities.get(key, 0), compiled_probabilities.get(key, 0)) 
+                                     for key in set(original_probabilities) | set(compiled_probabilities))
+    
+    # Aggiungere i risultati alla lista
+    results.append({
+        "Name of the circuit": file_name,
+        "Original Depth": original_depth,
+        "Original Gate Count": original_gate_count,
+        "Compiled Depth": compiled_depth,
+        "Compiled Gate Count": compiled_gate_count,
+        "Statevector Fidelity": statevector_fidelity_value,
+        "Probability Fidelity": probability_fidelity_value
+    })
 
 
 
@@ -223,10 +307,25 @@ for name in file_names:
     # Trivial mapping (e lo manteniamo fino alla fine)
     mapping = list(range(num_qubits))  # Logical-to-physical qubit mapping
     
+    # Processa il circuito
+    compiled_circuit = QuantumCircuit(max_qubits)
+    
+    print("Processing the circuit...")
     for instr in translated_circuit.data:
-        gate = instr[0]  # Gate/operation
-        qargs = instr[1]  # Qubit arguments (list of qubits used by the operation)
+        gate = instr[0]
+        qargs = instr[1]
+        mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
 
+    print("Compiled circuit:")
+    print(compiled_circuit)
+
+    # Calcola e salva i risultati
+    save_results(name, translated_circuit, compiled_circuit)
+
+# Salvare i risultati in un file CSV
+df = pd.DataFrame(results)
+df.to_csv(csv_file, index=False)
+print(f"Results saved to {csv_file}")
         # se è un single-qubit operation, applicala
     # Prima di applicare l'istruzione "compilata", 
     # isConnected()  che ti dice se è un'operazione lecita (sono connessi i due qubit di una cx): restituisce 1 (True)
@@ -242,8 +341,12 @@ for name in file_names:
     # Validate it using the provided qasm file, using the fidelity compared to the not compiled circuit results.
     
     # Basta misurare i primi (o ultimi?) num_qubits  [trivial mapping]
-
+    # Fidelity check
         
+# Compute total time of execution
+end_time = time.time()
+total_time = end_time - start_time
+print(f"Total time of execution: {total_time:.2f} seconds")
 
 
     
@@ -263,15 +366,6 @@ for name in file_names:
 """
        
 
-# Salvare i risultati in un file CSV
-df = pd.DataFrame(results)
-df.to_csv(csv_file, index=False)
-print(f"Results saved to {csv_file}")
-
-# Compute total time of execution
-end_time = time.time()
-total_time = end_time - start_time
-print(f"Total time of execution: {total_time:.2f} seconds")
 
 
     
