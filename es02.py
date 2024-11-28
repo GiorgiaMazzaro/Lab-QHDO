@@ -125,14 +125,28 @@ def process_qasm_file(qasm_file, native_gates):
             for t_gate in translated_gates:
                 translated_circuit.append(t_gate, qargs)
     
-    return translated_circuit
+    return translated_circuit, num_qubits
 
 # 
-def allowedConnections(backend):     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
-        """Crea una semplice struttura che in futuro ci permette di controllare se due qubit sono connessi"""
-#     for instr in backend.instructions:
-#         print(instr)
-    return connections
+def allowedConnections(backend):
+    """Crea una lista di liste per rappresentare le connessioni tra i qubit fisici."""
+    coupling_map = backend.configuration().coupling_map  # Ottieni la mappa delle connessioni
+    num_qubits = backend.configuration().num_qubits      # Numero di qubit nel backend
+
+    # Inizializza la lista delle connessioni con set per rimuovere i duplicati automaticamente
+    connections = [set() for _ in range(num_qubits)]
+
+    for edge in coupling_map:
+        q1, q2 = edge
+        connections[q1].add(q2)
+        connections[q2].add(q1)  # Connessione bidirezionale
+
+    # Converti i set in liste per la compatibilità con il resto del codice
+    return [list(conn) for conn in connections]
+
+def isConnected(connections, q1, q2):
+    """Controlla se due qubit fisici sono direttamente connessi."""
+    return q2 in connections[q1]    # 1 se sono connessi
 
 
 #Funzione che gestisce la connettività (SWAPS)
@@ -147,8 +161,6 @@ def routing():
 
 
 
-
-
 # Loop sui file QASM
 for name in file_names:
     filename = os.path.join(ABS_PATH, name)
@@ -156,21 +168,21 @@ for name in file_names:
     
     translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
     print(translated_circuit)
-    print(num_qubits)
     
     # Salvare la topologia delle connessioni. backend.instructions dizionario 
     # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
     connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
-    for instr in backend.instructions:
-        print(instr)
     
     # Trivial mapping
-    #map = [i in range()]
+    mapping = list(range(num_qubits))  # Logical-to-physical qubit mapping
     
-    
-    
+    for instr in translated_circuit.data:
+        gate = instr[0]  # Gate/operation
+        qargs = instr[1]  # Qubit arguments (list of qubits used by the operation)
+
+        # se è un single-qubit operation, applicala
     # Prima di applicare l'istruzione "compilata", 
-    # isConnected()  che ti dice se è un'operazione lecita (sono connessi i due qubit di una ): restituisce 1 (True)
+    # isConnected()  che ti dice se è un'operazione lecita (sono connessi i due qubit di una cx): restituisce 1 (True)
     if isConneceted():   #applica istruzione sui qubit fisici 
         # cx(0,1)   ---> cx(map[0],map[1])  perché ora il qubit logico 0 è mappato nel qubit fisico map[i]
 
