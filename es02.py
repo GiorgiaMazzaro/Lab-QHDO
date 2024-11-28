@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from qiskit import QuantumCircuit
+import matplotlib.pyplot as plt
 from qiskit.quantum_info import Statevector, state_fidelity
 from qiskit.providers.basic_provider import BasicProvider
 from qiskit_ibm_runtime.fake_provider import FakeGuadalupeV2
@@ -38,69 +39,77 @@ native_gates = backend.configuration().basis_gates
 max_qubits = backend.configuration().num_qubits    # Ottieni il numero di qubit disponibili dal backend
 
 
-#Funzione che traduce i gate non nativi in una sequenza di gate nativi
-def translate_gate_to_native(gate, qargs):
+# Funzione che traduce i gate non nativi in una sequenza di gate nativi
+def translate_gate_to_native(gate, qargs, num_qubits):
     """Traduci un gate non nativo in una sequenza di gate nativi."""
     translated_gates = []
+    
+    # Crea il circuito con il numero corretto di qubit
+    qc = QuantumCircuit(num_qubits)
+    
     if gate.name == "h":
-            # Hadamard -> RZ(pi/2) -> SX -> RZ(pi/2)
-            translated_gates.append(("rz", [math.pi / 2], qargs))
-            translated_gates.append(("sx", [], qargs))
-            translated_gates.append(("rz", [math.pi / 2], qargs))
+        # Hadamard -> RZ(pi/2) -> SX -> RZ(pi/2)
+        qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
+        qc.sx(qargs[0])  # Applica SX su qargs[0]
+        qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "rx":
-            # RX(theta) -> RZ(-pi/2) -> SX -> RZ(pi/2)
-            theta = gate.params[0]
-            translated_gates.append(("rz", [-math.pi / 2], qargs))
-            translated_gates.append(("sx", [], qargs))
-            translated_gates.append(("rz", [math.pi / 2], qargs))
-            if theta != math.pi / 2:
-                # Adjust for the rotation amount
-                translated_gates.append(("rz", [theta], qargs))
+        # RX(theta) -> RZ(-pi/2) -> SX -> RZ(pi/2)
+        theta = gate.params[0]
+        qc.rz(-math.pi / 2, qargs[0])  # Applica RZ(-pi/2) su qargs[0]
+        qc.sx(qargs[0])  # Applica SX su qargs[0]
+        qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
+        if theta != math.pi / 2:
+            # Adjust for the rotation amount
+            qc.rz(theta, qargs[0])  # Applica il valore di theta su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "ry":
-            # RY(theta) -> RZ(pi/2) -> SX -> RZ(theta - pi/2)
-            theta = gate.params[0]
-            translated_gates.append(("rz", [math.pi / 2], qargs))
-            translated_gates.append(("sx", [], qargs))
-            translated_gates.append(("rz", [theta - math.pi / 2], qargs))
+        # RY(theta) -> RZ(pi/2) -> SX -> RZ(theta - pi/2)
+        theta = gate.params[0]
+        qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
+        qc.sx(qargs[0])  # Applica SX su qargs[0]
+        qc.rz(theta - math.pi / 2, qargs[0])  # Applica RZ(theta - pi/2) su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "cz":
-            # CZ -> H(target) -> CX -> H(target)
-            control, target = qargs
-            translated_gates.append(("rz", [math.pi / 2], [target]))
-            translated_gates.append(("sx", [], [target]))
-            translated_gates.append(("rz", [math.pi / 2], [target]))
-            translated_gates.append(("cx", [], [control, target]))
-            translated_gates.append(("rz", [math.pi / 2], [target]))
-            translated_gates.append(("sx", [], [target]))
-            translated_gates.append(("rz", [math.pi / 2], [target]))
+        # CZ -> H(target) -> CX -> H(target)
+        control, target = qargs
+        qc.h(target)  # Applica H su target
+        qc.cx(control, target)  # Applica CX su (control, target)
+        qc.h(target)  # Applica H su target
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "ccx":  # Toffoli (CCX)
-            # Scomposizione del Toffoli (CCX) in CNOT e RZ
-            control1, control2, target = qargs
-            translated_gates.extend([
-                ("cx", [], [control1, target]),  # CX1
-                ("rz", [math.pi / 4], [target]),  # RZ(pi/4) sul target
-                ("cx", [], [control2, target]),  # CX2
-                ("rz", [math.pi / 4], [control2]),  # RZ(pi/4) sul control2
-                ("cx", [], [control1, target]),  # CX3
-                ("rz", [math.pi / 4], [target]),  # RZ(pi/4) sul target
-                ("cx", [], [control2, target]),  # CX4
-                ("rz", [math.pi / 4], [control2]),  # RZ(pi/4) sul control2
-                ("cx", [], [control1, target])])   # CX5
+        # Scomposizione del Toffoli (CCX) in CNOT e RZ
+        control1, control2, target = qargs
+        qc.cx(control1, target)  # CX1
+        qc.rz(math.pi / 4, target)  # RZ(pi/4) sul target
+        qc.cx(control2, target)  # CX2
+        qc.rz(math.pi / 4, control2)  # RZ(pi/4) sul control2
+        qc.cx(control1, target)  # CX3
+        qc.rz(math.pi / 4, target)  # RZ(pi/4) sul target
+        qc.cx(control2, target)  # CX4
+        qc.rz(math.pi / 4, control2)  # RZ(pi/4) sul control2
+        qc.cx(control1, target)  # CX5
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "t":
-            # T -> RZ(pi/4)
-            translated_gates.append(("rz", [math.pi / 4], qargs))
+        # T -> RZ(pi/4)
+        qc.rz(math.pi / 4, qargs[0])  # Applica RZ(pi/4) su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "tdg":
-            # Tdg -> RZ(-pi/4)
-            translated_gates.append(("rz", [-math.pi / 4], qargs))
+        # Tdg -> RZ(-pi/4)
+        qc.rz(-math.pi / 4, qargs[0])  # Applica RZ(-pi/4) su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "u3":
-            # U3(theta, phi, lambda) -> RZ(phi) -> RX(theta) -> RZ(lambda)
-            theta, phi, lambda_ = gate.params
-            translated_gates.append(("rz", [phi], qargs))
-            translated_gates.append(("sx", [], qargs))
-            translated_gates.append(("rz", [lambda_], qargs))
+        # U3(theta, phi, lambda) -> RZ(phi) -> SX -> RZ(lambda)
+        theta, phi, lambda_ = gate.params
+        qc.rz(phi, qargs[0])  # Applica RZ(phi) su qargs[0]
+        qc.sx(qargs[0])  # Applica SX su qargs[0]
+        qc.rz(lambda_, qargs[0])  # Applica RZ(lambda_) su qargs[0]
+        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     else:
-            raise ValueError(f"Gate {gate.name} non supportato e traduzione non definita.")
-        
+        raise ValueError(f"Gate {gate.name} non supportato e traduzione non definita.")
+    
     return translated_gates
+
 
 
 #Funzione che legge il file
@@ -114,8 +123,8 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit Ã
     
     # Itera sui gate nel circuito
     for instruction in circuit.data:
-        gate = instruction[0]  # Gate/istruzione
-        qargs = instruction[1]  # Lista dei qubit associati
+        gate = instruction.operation  # Access the gate operation
+        qargs = instruction.qubits  # Access the qubits
         
         if gate.name in native_gates:
             # Se il gate Ã¨ nativo, aggiungilo direttamente
@@ -317,7 +326,8 @@ for name in file_names:
         mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
 
     print("Compiled circuit:")
-    print(compiled_circuit)
+    print(compiled_circuit.draw())
+    plt.show()
 
     # Calcola e salva i risultati
     save_results(name, translated_circuit, compiled_circuit)
