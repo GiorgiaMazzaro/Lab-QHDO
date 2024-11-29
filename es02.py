@@ -177,8 +177,10 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
     
     elif len(qargs) == 2:
         # Two-qubit operation
-        physical_q1 = mapping[qargs[0]._index]
-        physical_q2 = mapping[qargs[1]._index]
+        logical_q1 = qargs[0]._index
+        logical_q2 = qargs[1]._index
+        physical_q1 = mapping[logical_q1]
+        physical_q2 = mapping[logical_q2]
         
         if isConnected(connections, physical_q1, physical_q2):
             # Se i qubit fisici sono connessi, applica direttamente
@@ -186,12 +188,17 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
             compiled_circuit.append(gate, [physical_q1, physical_q2])  # Aggiungi il gate al circuito compilato
         else:
             # Se i qubit fisici non sono connessi, esegui il routing
-            print(f"Routing required for {gate.name} between {physical_q1} and {physical_q2}.")
+            print(f"Routing required for {gate.name} between logical qubit {logical_q1} (mapped to physical {physical_q1}) and logical qubit {logical_q2} (mapped to physical {physical_q2}).")
             routing_result = applyRouting(connections, physical_q1, physical_q2, mapping, compiled_circuit)
             # Aggiorna mapping e ottieni i nuovi qubit fisici
-            mapping = routing_result['updated_mapping']    # l'idea è di lasciare il trivial mapping, quindi non varia
+            mapping = routing_result['updated_mapping']   
             routed_q1 = routing_result['q1']
             routed_q2 = routing_result['q2']
+            print(f"Routed secondo chat {routed_q1} {routed_q2}")
+            
+            routed_q1 = mapping[logical_q1]
+            routed_q2 = mapping[logical_q2]
+            print(f"Routed easily following the map chat {routed_q1} {routed_q2}")
             
             # Applica il gate dopo il routing
             print(f"Applying {gate.name} on updated physical qubits {routed_q1} and {routed_q2}.")
@@ -242,8 +249,8 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
             - 'q1', 'q2': I nuovi indici fisici dei qubit dopo il routing.
             - 'updated_mapping': La mappatura aggiornata dei qubit logici.
     """
-    # Trova il percorso minimo da q1 a q2
-    path = bfs(connections, q1, q2)
+    # Trova il percorso minimo da q1 a q2 (anzi, più che q2, voglio un qubit fisico ad esso connesso - sfrutto la mappa connections)
+    path = bfs(connections, q1, connections[q2][0])    # 
     
     if not path:
         raise ValueError(f"No path found between qubits {q1} and {q2}.")
@@ -253,12 +260,17 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
         # Aggiungi SWAP tra i qubit lungo il percorso
         compiled_circuit.swap(path[i], path[i + 1])
         
-        # Aggiorna il mapping
-        for logical_qubit, physical_qubit in enumerate(mapping):
-            if physical_qubit == path[i]:
-                mapping[logical_qubit] = path[i + 1]
-            elif physical_qubit == path[i + 1]:
-                mapping[logical_qubit] = path[i]
+        # Aggiorna il mapping (swap indici)
+        temp = mapping[path[i]]
+        mapping[path[i]] = mapping[path[i+1]]
+        mapping[path[i+1]] = temp
+        
+        print(f"Iteration {i}. Update mapping: {mapping}")
+        # for logical_qubit, physical_qubit in enumerate(mapping):
+        #     if physical_qubit == path[i]:
+        #         mapping[logical_qubit] = path[i + 1]
+        #     elif physical_qubit == path[i + 1]:
+        #         mapping[logical_qubit] = path[i]
     
     # Ora q1 e q2 sono connessi, quindi restituiamo la mappatura aggiornata
     return {'q1': q1, 'q2': q2, 'updated_mapping': mapping}    
@@ -334,87 +346,57 @@ def save_results(file_name, original_circuit, compiled_circuit, backend, num_qub
 
 
 # Main
-# Loop sui file QASM
-for name in file_names:
-    filename = os.path.join(ABS_PATH, name)
-    print(f"Processing file: {filename}")
-    
-    circuit, translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
-    print("Original circuit:")
-    print(circuit.draw())
-    plt.show()
-    
-    # Salvare la topologia delle connessioni. backend.instructions dizionario 
-    # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
-    connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
-    print(f"Connections")
-    for i in range(len(connections)):
-        print(f"Nodo {i}: {connections[i]}")
-    
-    # Trivial mapping (e lo manteniamo fino alla fine)
-    mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
-    
-    # Processa il circuito
-    compiled_circuit = QuantumCircuit(max_qubits)
-    
-    print("Processing the circuit...")
-    for instr in translated_circuit.data:
-        gate = instr.operation  # Access the gate operation
-        qargs = instr.qubits  # Access the qubits
-        mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
-
-    print("Compiled circuit:")
-    print(compiled_circuit.draw())
-    plt.show()
-
-    # Calcola e salva i risultati (original_circuit, compiled_circuit) def save_results(file_name, original_circuit, compiled_circuit, backend, num_qubits):
-    ###TO DO 
-    #save_results(name, circuit, compiled_circuit, backend, num_qubits, max_qubits)
-
-# Salvare i risultati in un file CSV
-df = pd.DataFrame(results)
-df.to_csv(csv_file, index=False)
-print(f"Results saved to {csv_file}")
-        # se è un single-qubit operation, applicala
-    # Prima di applicare l'istruzione "compilata", 
-    # isConnected()  che ti dice se è un'operazione lecita (sono connessi i due qubit di una cx): restituisce 1 (True)
-     #applica istruzione sui qubit fisici 
-        # cx(0,1)   ---> cx(map[0],map[1])  perché ora il qubit logico 0 è mappato nel qubit fisico map[i]
-
-    # Altrimenti routing: SWAP(finché non avvicini i due qubit) e scambiare l'array
-    # Una volta applicato il gate, riapplica al contrario gli swap in modo da ripristinare il "trivial mapping"
-    
-    
-    
-    # Fidelity check: abbiamo fatto un buon lavoro?
-    # Validate it using the provided qasm file, using the fidelity compared to the not compiled circuit results.
-    
-    # Basta misurare i primi (o ultimi?) num_qubits  [trivial mapping]
-    # Fidelity check
+if __name__ == "__main__":
+    # Loop sui file QASM
+    for name in file_names:
+        filename = os.path.join(ABS_PATH, name)
+        print(f"Processing file: {filename}")
         
-# Compute total time of execution
-end_time = time.time()
-total_time = end_time - start_time
-print(f"Total time of execution: {total_time:.2f} seconds")
+        circuit, translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
+        print("Original circuit:")
+        print(circuit.draw())
+        plt.show()
+        
+        # Salvare la topologia delle connessioni. backend.instructions dizionario 
+        # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
+        connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
+        print(f"Connections")
+        for i in range(len(connections)):
+            print(f"Nodo {i}: {connections[i]}")
+        
+        # Trivial mapping (e lo manteniamo fino alla fine)
+        mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
+        
+        
+        # Processa il circuito
+        compiled_circuit = QuantumCircuit(max_qubits)
+        
+        print("Processing the circuit...")
+        for instr in translated_circuit.data:
+            gate = instr.operation  # Access the gate operation
+            qargs = instr.qubits  # Access the qubits
+            mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
 
+        print("Compiled circuit:")
+        print(compiled_circuit.draw())
+        plt.show()
 
-    
+        ###TO DO # Calcola e salva i risultati
+        #save_results(name, circuit, compiled_circuit, backend, num_qubits, max_qubits)
+        # Fidelity check: abbiamo fatto un buon lavoro?
+        # Validate it using the provided qasm file, using the fidelity compared to the not compiled circuit results.
+        
+        # Basta misurare i primi (o ultimi?) num_qubits  [trivial mapping]
+        # Fidelity check
 
+    # Salvare i risultati in un file CSV
+    df = pd.DataFrame(results)
+    df.to_csv(csv_file, index=False)
+    print(f"Results saved to {csv_file}")
+        
+            
+    # Compute total time of execution
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"Total time of execution: {total_time:.2f} seconds")
 
-"""
-    # Memorizzare i risultati
-         results.append({
-        "Name of the circuit": file_name,
-        "Original Depth": original_depth,
-        "Original Gate Count": original_gate_count,
-        "Compiled Depth": compiled_depth,
-        "Compiled Gate Count": compiled_gate_count,
-        "Statevector Fidelity": statevector_fidelity,
-        "Probability Fidelity": probability_fidelity
-    })
-"""
-       
-
-
-
-    
