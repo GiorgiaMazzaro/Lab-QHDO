@@ -26,7 +26,7 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
-file_names = ["adder_small.qasm"]
+file_names = ["adder_medium.qasm"]
 
 csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02.csv'
 
@@ -117,9 +117,6 @@ def translate_gate_to_native(gate, qargs, qc):     # gli passiamo il circuito co
     
     return 0
 
-
-
-
 #Funzione che legge il file
 def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit è fissato dal backend (16 per fakeguadalupe)
     """Leggi un file QASM, verifica i gate e traduci quelli non nativi."""
@@ -145,7 +142,6 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit �
 
     return circuit, translated_circuit, num_qubits
 
-# 
 def allowedConnections(backend):
     """Crea una lista di liste per rappresentare le connessioni tra i qubit fisici."""
     coupling_map = backend.configuration().coupling_map  # Ottieni la mappa delle connessioni
@@ -254,16 +250,16 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
         'n_swaps': number of swap operations required
     """
     # Trova il percorso minimo da q1 a q2 
-    end = connections[q2][0]     # (anzi, più che q2, voglio un qubit fisico ad esso connesso - sfrutto la mappa connections)
-    path = bfs(connections, q1, end)   
+    path = bfs(connections, q1, q2) 
+     
     n_swaps = 0
     if not path:
         raise ValueError(f"No path found between qubits {q1} and {q2}.")
     
     # Fai lo swap lungo il percorso
-    for i in range(len(path) - 1):
+    for i in range(len(path) - 2):   # con -2 (anziché -1) mi sto fermando ad un "vicino del target"
         # Aggiungi SWAP tra i qubit lungo il percorso
-        compiled_circuit.swap(path[i], path[i + 1])
+        compiled_circuit.swap(path[i], path[i + 1])   # swap ---> native gates
         n_swaps += 1
         
         # Aggiorna il mapping (swap indici)
@@ -308,11 +304,6 @@ def extract_significant_terms(statevector, mapping, num_qubits):
 
     return reduced_coefficients
 
-
-
-
-
-
 # Main
 if __name__ == "__main__":
     # Loop sui file QASM
@@ -350,13 +341,12 @@ if __name__ == "__main__":
         # Salvare la topologia delle connessioni. backend.instructions dizionario 
         # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
         connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
-        print(f"Connections")
-        for i in range(len(connections)):
-            print(f"Nodo {i}: {connections[i]}")
+        # print(f"Connections")
+        # for i in range(len(connections)):
+        #     print(f"Nodo {i}: {connections[i]}")
         
         # Trivial mapping (e lo manteniamo fino alla fine)
         mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
-        #mapping = {i: i for i in range(max_qubits)}  # Mappatura logico → fisico iniziale
         
         # Processa il circuito
         compiled_circuit = QuantumCircuit(max_qubits)
@@ -399,8 +389,9 @@ if __name__ == "__main__":
 
 
         # Calculate probabilities, including zero counts
-        total_shots2 = sum(counts.values())
-        probabilities2 = [counts.get(state, 0) / total_shots for state in all_states]
+        total_shots2 = sum(counts2.values())
+        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states]
+        print(f"Counts of the compiled circuit: \n{counts2}")
     
         prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
         
@@ -422,4 +413,3 @@ if __name__ == "__main__":
     end_time = time.time()
     total_time = end_time - start_time
     print(f"Total time of execution: {total_time:.2f} seconds")
-
