@@ -27,7 +27,7 @@ file_names = [
 ]
 file_names = ["adder_small.qasm"]
 
-csv_file = '/home/qhd24_8/gr8_lab4/es01/es02-FRA.csv'
+csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02.csv'
 
 
 # Inizializza i risultati
@@ -40,19 +40,18 @@ max_qubits = backend.configuration().num_qubits    # Ottieni il numero di qubit 
 
 
 # Funzione che traduce i gate non nativi in una sequenza di gate nativi
-def translate_gate_to_native(gate, qargs, num_qubits):
+def translate_gate_to_native(gate, qargs, qc):     # gli passiamo il circuito così li applica direttamente 
     """Traduci un gate non nativo in una sequenza di gate nativi."""
-    translated_gates = []
+    # translated_gates = []
     
-    # Crea il circuito con il numero corretto di qubit
-    qc = QuantumCircuit(num_qubits)
-    
+    # Determina il numero di qubit (assumiamo che tutti i qubit siano nel circuito)
+    num_qubits = len(qargs)
+ 
     if gate.name == "h":
         # Hadamard -> RZ(pi/2) -> SX -> RZ(pi/2)
         qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
         qc.sx(qargs[0])  # Applica SX su qargs[0]
         qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "rx":
         # RX(theta) -> RZ(-pi/2) -> SX -> RZ(pi/2)
         theta = gate.params[0]
@@ -62,21 +61,19 @@ def translate_gate_to_native(gate, qargs, num_qubits):
         if theta != math.pi / 2:
             # Adjust for the rotation amount
             qc.rz(theta, qargs[0])  # Applica il valore di theta su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "ry":
         # RY(theta) -> RZ(pi/2) -> SX -> RZ(theta - pi/2)
         theta = gate.params[0]
         qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]
         qc.sx(qargs[0])  # Applica SX su qargs[0]
         qc.rz(theta - math.pi / 2, qargs[0])  # Applica RZ(theta - pi/2) su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "cz":
         # CZ -> H(target) -> CX -> H(target)
         control, target = qargs
         qc.h(target)  # Applica H su target
         qc.cx(control, target)  # Applica CX su (control, target)
         qc.h(target)  # Applica H su target
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
+        #translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "ccx":  # Toffoli (CCX)
         # Scomposizione del Toffoli (CCX) in CNOT e RZ
         control1, control2, target = qargs
@@ -89,26 +86,26 @@ def translate_gate_to_native(gate, qargs, num_qubits):
         qc.cx(control2, target)  # CX4
         qc.rz(math.pi / 4, control2)  # RZ(pi/4) sul control2
         qc.cx(control1, target)  # CX5
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
+    elif gate.name == "s":    ## AGGIUNTO
+        # S -> RZ(pi/2)   ???
+        qc.rz(math.pi / 2, qargs[0])  # Applica RZ(pi/2) su qargs[0]   ## DA CONTROLLARE
     elif gate.name == "t":
         # T -> RZ(pi/4)
         qc.rz(math.pi / 4, qargs[0])  # Applica RZ(pi/4) su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "tdg":
         # Tdg -> RZ(-pi/4)
         qc.rz(-math.pi / 4, qargs[0])  # Applica RZ(-pi/4) su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     elif gate.name == "u3":
         # U3(theta, phi, lambda) -> RZ(phi) -> SX -> RZ(lambda)
         theta, phi, lambda_ = gate.params
         qc.rz(phi, qargs[0])  # Applica RZ(phi) su qargs[0]
         qc.sx(qargs[0])  # Applica SX su qargs[0]
         qc.rz(lambda_, qargs[0])  # Applica RZ(lambda_) su qargs[0]
-        translated_gates.append(qc)  # Aggiungi il circuito all'elenco
     else:
         raise ValueError(f"Gate {gate.name} non supportato e traduzione non definita.")
     
-    return translated_gates
+    return 0
+
 
 
 
@@ -118,24 +115,24 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit �
     # Carica il circuito dal file QASM
     circuit = QuantumCircuit.from_qasm_file(qasm_file)
     num_qubits = circuit.num_qubits      # è già un parametro di dominio pubblico, che posso chiamare anche fuori dalla funzione?
-    # Crea un nuovo circuito con gli stessi qubit
-    translated_circuit = QuantumCircuit(circuit.num_qubits)
-    
+    # Crea un nuovo circuito con il numero di qubit del backend
+    translated_circuit = QuantumCircuit(max_qubits)
+
     # Itera sui gate nel circuito
     for instruction in circuit.data:
         gate = instruction.operation  # Access the gate operation
-        qargs = instruction.qubits  # Access the qubits
+        qargs = instruction.qubits  # Access the qubits    # è del tipo (Qubit(QuantumRegister(4, 'q'), 0), Qubit(QuantumRegister(4, 'q'), 1))
+        # Estrai gli indici dei qubit da qargs
+        qargs_indices = [q._index for q in qargs]
         
         if gate.name in native_gates:
             # Se il gate è nativo, aggiungilo direttamente
-            translated_circuit.append(gate, qargs)
+            translated_circuit.append(gate, qargs_indices)
         else:
             # Se il gate non è nativo, traducilo
-            translated_gates = translate_gate_to_native(gate, qargs)
-            for t_gate in translated_gates:
-                translated_circuit.append(t_gate, qargs)
-    
-    return translated_circuit, num_qubits
+            check = translate_gate_to_native(gate, qargs_indices, translated_circuit)  # check = 0 se è andato tutto bene
+
+    return circuit, translated_circuit, num_qubits
 
 # 
 def allowedConnections(backend):
@@ -174,14 +171,14 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
     """
     if len(qargs) == 1:
         # Single-qubit operation
-        physical_qubit = mapping[qargs[0].index]
+        physical_qubit = mapping[qargs[0]._index]
         print(f"Applying {gate.name} on physical qubit {physical_qubit}.")
         compiled_circuit.append(gate, [physical_qubit])  # Aggiungi l'operazione al circuito compilato
     
     elif len(qargs) == 2:
         # Two-qubit operation
-        physical_q1 = mapping[qargs[0].index]
-        physical_q2 = mapping[qargs[1].index]
+        physical_q1 = mapping[qargs[0]._index]
+        physical_q2 = mapping[qargs[1]._index]
         
         if isConnected(connections, physical_q1, physical_q2):
             # Se i qubit fisici sono connessi, applica direttamente
@@ -199,6 +196,8 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
             # Applica il gate dopo il routing
             print(f"Applying {gate.name} on updated physical qubits {routed_q1} and {routed_q2}.")
             compiled_circuit.append(gate, [routed_q1, routed_q2])  # Aggiungi il gate al circuito compilato
+            
+            print(f"Adesso il mapping è: {mapping}")
     
     else:
         raise ValueError(f"Unsupported gate with {len(qargs)} qubits: {gate.name}")
@@ -264,39 +263,73 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
     # Ora q1 e q2 sono connessi, quindi restituiamo la mappatura aggiornata
     return {'q1': q1, 'q2': q2, 'updated_mapping': mapping}    
 
-# Memorizza i risultati
-def save_results(file_name, original_circuit, compiled_circuit):
-    # Calcolare la profondità e il numero di gate nel circuito originale
+def save_results(file_name, original_circuit, compiled_circuit, backend, num_qubits, max_qubits):
+    """
+    Salva i risultati della compilazione calcolando profondità, conteggio di gate
+    e fedeltà (statevector e probabilità) con uniformazione delle dimensioni.
+    """
+    # Lista di stati possibili per probabilità (basati sui qubit logici)
+    all_states = [bin(i)[2:].zfill(num_qubits) for i in range(2 ** num_qubits)]
+
+    # Calcolo profondità e numero di gate del circuito originale
     original_depth = original_circuit.depth()
     original_gate_count = len(original_circuit.data)
     
-    # Calcolare la profondità e il numero di gate nel circuito compilato
+    # Calcolo profondità e numero di gate del circuito compilato
     compiled_depth = compiled_circuit.depth()
     compiled_gate_count = len(compiled_circuit.data)
-    
-    # Calcolare la fedeltà tra il circuito originale e compilato
-    original_state = Statevector.from_instruction(original_circuit)
-    compiled_state = Statevector.from_instruction(compiled_circuit)
-    statevector_fidelity_value = state_fidelity(original_state, compiled_state)
-    
-    # Includere la fedeltà delle probabilità
-    # Se vuoi includere anche la fedeltà basata sulle probabilità, puoi simulare i circuiti e calcolare la fidelità sulle probabilità
-    original_probabilities = original_state.probabilities_dict()
-    compiled_probabilities = compiled_state.probabilities_dict()
-    
-    probability_fidelity_value = sum(min(original_probabilities.get(key, 0), compiled_probabilities.get(key, 0)) 
-                                     for key in set(original_probabilities) | set(compiled_probabilities))
-    
-    # Aggiungere i risultati alla lista
+
+    # Espansione del circuito originale per includere i qubit ancillari
+    extended_original_circuit = QuantumCircuit(max_qubits)
+    extended_original_circuit.compose(original_circuit, range(num_qubits), inplace=True)
+
+    # Simulazione dello statevector originale
+    original_state = Statevector(extended_original_circuit)
+
+    # Simulazione del circuito compilato sul backend
+    compiled_circuit_m = compiled_circuit.copy()
+    compiled_circuit_m.measure_all()
+    result_fake = backend.run(compiled_circuit_m).result()
+    counts_fake = result_fake.get_counts()
+    total_shots_fake = sum(counts_fake.values())
+
+    # Correzione dei conteggi basata sul mapping logico-fisico (trivial mapping)
+    mapping = list(range(num_qubits))  # Mapping dei qubit logici nei fisici
+    corrected_counts = {}
+    for measured_state, count in counts_fake.items():
+        # Consideriamo solo i bit corrispondenti ai qubit logici
+        corrected_state = ''.join(measured_state[-(qubit + 1)] for qubit in mapping)
+        if corrected_state not in corrected_counts:
+            corrected_counts[corrected_state] = 0
+        corrected_counts[corrected_state] += count
+
+    # Calcolo delle probabilità corrette per i qubit logici
+    probabilities_fake = [
+        corrected_counts.get(state, 0) / total_shots_fake for state in all_states
+    ]
+
+    # Probabilità dello statevector originale
+    probabilities_original = list(original_state.probabilities_dict().values())
+
+    # Calcolo delle fedeltà
+    fidelity_statevector = np.abs(original_state.inner(Statevector(compiled_circuit)))  # Fedeltà tra statevector
+    fidelity_probability = (np.sum(
+        np.sqrt(probabilities_original) *
+        np.sqrt(probabilities_fake))) ** 2  # Fedeltà delle probabilità
+
+    # Aggiungere i risultati a una lista
     results.append({
         "Name of the circuit": file_name,
         "Original Depth": original_depth,
         "Original Gate Count": original_gate_count,
         "Compiled Depth": compiled_depth,
         "Compiled Gate Count": compiled_gate_count,
-        "Statevector Fidelity": statevector_fidelity_value,
-        "Probability Fidelity": probability_fidelity_value
+        "Statevector Fidelity": fidelity_statevector,
+        "Probability Fidelity": fidelity_probability
     })
+
+
+
 
 
 
@@ -306,31 +339,37 @@ for name in file_names:
     filename = os.path.join(ABS_PATH, name)
     print(f"Processing file: {filename}")
     
-    translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
-    print(translated_circuit)
+    circuit, translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
+    print("Original circuit:")
+    print(circuit.draw())
+    plt.show()
     
     # Salvare la topologia delle connessioni. backend.instructions dizionario 
     # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
     connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
+    print(f"Connections")
+    for i in range(len(connections)):
+        print(f"Nodo {i}: {connections[i]}")
     
     # Trivial mapping (e lo manteniamo fino alla fine)
-    mapping = list(range(num_qubits))  # Logical-to-physical qubit mapping
+    mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
     
     # Processa il circuito
     compiled_circuit = QuantumCircuit(max_qubits)
     
     print("Processing the circuit...")
     for instr in translated_circuit.data:
-        gate = instr[0]
-        qargs = instr[1]
+        gate = instr.operation  # Access the gate operation
+        qargs = instr.qubits  # Access the qubits
         mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
 
     print("Compiled circuit:")
     print(compiled_circuit.draw())
     plt.show()
 
-    # Calcola e salva i risultati
-    save_results(name, translated_circuit, compiled_circuit)
+    # Calcola e salva i risultati (original_circuit, compiled_circuit) def save_results(file_name, original_circuit, compiled_circuit, backend, num_qubits):
+    ###TO DO 
+    #save_results(name, circuit, compiled_circuit, backend, num_qubits, max_qubits)
 
 # Salvare i risultati in un file CSV
 df = pd.DataFrame(results)
