@@ -13,6 +13,7 @@ from qiskit.transpiler import CouplingMap
 from qiskit.transpiler.passes import BasicSwap
 from qiskit.transpiler import PassManager
 from collections import deque
+from qiskit.visualization import plot_histogram
 
 # Start timer
 start_time = time.time()
@@ -29,11 +30,21 @@ file_names = ["adder_small.qasm"]
 
 csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02.csv'
 
-
-# Inizializza i risultati
-results = []
+# Creazione del DataFrame iniziale
+header = [
+    "Name of the circuit",
+    "Original Depth",
+    "Original Gate Count",
+    "Compiled Depth",
+    "Compiled Gate Count",
+    "Additional swaps (x routing)",
+    "Probability Fidelity"
+    # "Statevector Fidelity",
+]
+df = pd.DataFrame(columns=header)
 
 # Backend simulato e gate nativi
+backend_basic = BasicProvider().get_backend("basic_simulator")
 backend = FakeGuadalupeV2()
 native_gates = backend.configuration().basis_gates
 max_qubits = backend.configuration().num_qubits    # Ottieni il numero di qubit disponibili dal backend
@@ -155,7 +166,7 @@ def isConnected(connections, q1, q2):
     """Controlla se due qubit fisici sono direttamente connessi."""
     return q2 in connections[q1]    # 1 se sono connessi
 
-def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
+def apply_gate(gate, qargs, mapping, connections, compiled_circuit, tot_swaps):
     """
     Gestisce l'applicazione di una singola istruzione sul circuito compilato.
     
@@ -189,13 +200,8 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
         else:
             # Se i qubit fisici non sono connessi, esegui il routing
             print(f"Routing required for {gate.name} between logical qubit {logical_q1} (mapped to physical {physical_q1}) and logical qubit {logical_q2} (mapped to physical {physical_q2}).")
-            routing_result = applyRouting(connections, physical_q1, physical_q2, mapping, compiled_circuit)
-            # Aggiorna mapping e ottieni i nuovi qubit fisici
-            mapping = routing_result['updated_mapping']   
-            routed_q1 = routing_result['q1']
-            routed_q2 = routing_result['q2']
-            print(f"Routed secondo chat {routed_q1} {routed_q2}")
-            
+            tot_swaps += applyRouting(connections, physical_q1, physical_q2, mapping, compiled_circuit)
+            # Aggiorna mapping e ottieni i nuovi qubit fisici          
             routed_q1 = mapping[logical_q1]
             routed_q2 = mapping[logical_q2]
             print(f"Routed easily following the map chat {routed_q1} {routed_q2}")
@@ -209,7 +215,7 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit):
     else:
         raise ValueError(f"Unsupported gate with {len(qargs)} qubits: {gate.name}")
     
-    return mapping
+    return mapping, tot_swaps
 
 def bfs(connections, start, end):
     """Trova il percorso minimo tra start e end usando BFS."""
@@ -245,13 +251,12 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
         compiled_circuit: Il circuito compilato su cui aggiungere gli SWAP.
     
     Returns:
-        dict: Contiene:
-            - 'q1', 'q2': I nuovi indici fisici dei qubit dopo il routing.
-            - 'updated_mapping': La mappatura aggiornata dei qubit logici.
+        'n_swaps': number of swap operations required
     """
-    # Trova il percorso minimo da q1 a q2 (anzi, più che q2, voglio un qubit fisico ad esso connesso - sfrutto la mappa connections)
-    path = bfs(connections, q1, connections[q2][0])    # 
-    
+    # Trova il percorso minimo da q1 a q2 
+    end = connections[q2][0]     # (anzi, più che q2, voglio un qubit fisico ad esso connesso - sfrutto la mappa connections)
+    path = bfs(connections, q1, end)   
+    n_swaps = 0
     if not path:
         raise ValueError(f"No path found between qubits {q1} and {q2}.")
     
@@ -259,86 +264,49 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
     for i in range(len(path) - 1):
         # Aggiungi SWAP tra i qubit lungo il percorso
         compiled_circuit.swap(path[i], path[i + 1])
+        n_swaps += 1
         
         # Aggiorna il mapping (swap indici)
-        temp = mapping[path[i]]
-        mapping[path[i]] = mapping[path[i+1]]
-        mapping[path[i+1]] = temp
+        qubit_j = path[i]
+        qubit_k = path[i+1]
+        logic_qbit_j = mapping.index(qubit_j)
+        logic_qbit_k = mapping.index(qubit_k)
+        mapping[logic_qbit_j], mapping[logic_qbit_k] = mapping[logic_qbit_k], mapping[logic_qbit_j]
         
-        print(f"Iteration {i}. Update mapping: {mapping}")
-        # for logical_qubit, physical_qubit in enumerate(mapping):
-        #     if physical_qubit == path[i]:
-        #         mapping[logical_qubit] = path[i + 1]
-        #     elif physical_qubit == path[i + 1]:
-        #         mapping[logical_qubit] = path[i]
-    
-    # Ora q1 e q2 sono connessi, quindi restituiamo la mappatura aggiornata
-    return {'q1': q1, 'q2': q2, 'updated_mapping': mapping}    
+        print(f"Iteration {i}. Update mapping: {mapping}")   
 
-def save_results(file_name, original_circuit, compiled_circuit, backend, num_qubits, max_qubits):
+    return n_swaps
+
+def extract_significant_terms(statevector, mapping, num_qubits):
     """
-    Salva i risultati della compilazione calcolando profondità, conteggio di gate
-    e fedeltà (statevector e probabilità) con uniformazione delle dimensioni.
+    Riduci uno Statevector a un array con termini solo per i qubit significativi.
+
+    Parameters:
+        - statevector: Statevector completo.
+        - mapping: Lista con mappatura dei qubit logici su quelli fisici.
+        - num_qubits: Numero di qubit logici significativi.
+
+    Returns:
+        - Array numpy dei coefficienti ridotti.
     """
-    # Lista di stati possibili per probabilità (basati sui qubit logici)
-    all_states = [bin(i)[2:].zfill(num_qubits) for i in range(2 ** num_qubits)]
+    significant_qubits = []
+    for i in range(num_qubits):
+        significant_qubits.append(mapping.index(i))
 
-    # Calcolo profondità e numero di gate del circuito originale
-    original_depth = original_circuit.depth()
-    original_gate_count = len(original_circuit.data)
-    
-    # Calcolo profondità e numero di gate del circuito compilato
-    compiled_depth = compiled_circuit.depth()
-    compiled_gate_count = len(compiled_circuit.data)
+    # Ottieni tutte le combinazioni possibili per i qubit significativi
+    reduced_basis_states = []
+    for i in range(2 ** num_qubits):
+        # Stato base significativo in binario
+        reduced_basis = format(i, f'0{num_qubits}b')
+        full_basis = ['0'] * statevector.num_qubits  # Inizializza stato completo
+        for idx, qubit in enumerate(significant_qubits):
+            full_basis[qubit] = reduced_basis[idx]  # Mappa nel vettore completo
+        reduced_basis_states.append(''.join(full_basis))
 
-    # Espansione del circuito originale per includere i qubit ancillari
-    extended_original_circuit = QuantumCircuit(max_qubits)
-    extended_original_circuit.compose(original_circuit, range(num_qubits), inplace=True)
+    # Converti lo stato base in un indice per estrarre i coefficienti
+    reduced_coefficients = np.array([statevector[int(reduced_state, 2)] for reduced_state in reduced_basis_states])
 
-    # Simulazione dello statevector originale
-    original_state = Statevector(extended_original_circuit)
-
-    # Simulazione del circuito compilato sul backend
-    compiled_circuit_m = compiled_circuit.copy()
-    compiled_circuit_m.measure_all()
-    result_fake = backend.run(compiled_circuit_m).result()
-    counts_fake = result_fake.get_counts()
-    total_shots_fake = sum(counts_fake.values())
-
-    # Correzione dei conteggi basata sul mapping logico-fisico (trivial mapping)
-    mapping = list(range(num_qubits))  # Mapping dei qubit logici nei fisici
-    corrected_counts = {}
-    for measured_state, count in counts_fake.items():
-        # Consideriamo solo i bit corrispondenti ai qubit logici
-        corrected_state = ''.join(measured_state[-(qubit + 1)] for qubit in mapping)
-        if corrected_state not in corrected_counts:
-            corrected_counts[corrected_state] = 0
-        corrected_counts[corrected_state] += count
-
-    # Calcolo delle probabilità corrette per i qubit logici
-    probabilities_fake = [
-        corrected_counts.get(state, 0) / total_shots_fake for state in all_states
-    ]
-
-    # Probabilità dello statevector originale
-    probabilities_original = list(original_state.probabilities_dict().values())
-
-    # Calcolo delle fedeltà
-    fidelity_statevector = np.abs(original_state.inner(Statevector(compiled_circuit)))  # Fedeltà tra statevector
-    fidelity_probability = (np.sum(
-        np.sqrt(probabilities_original) *
-        np.sqrt(probabilities_fake))) ** 2  # Fedeltà delle probabilità
-
-    # Aggiungere i risultati a una lista
-    results.append({
-        "Name of the circuit": file_name,
-        "Original Depth": original_depth,
-        "Original Gate Count": original_gate_count,
-        "Compiled Depth": compiled_depth,
-        "Compiled Gate Count": compiled_gate_count,
-        "Statevector Fidelity": fidelity_statevector,
-        "Probability Fidelity": fidelity_probability
-    })
+    return reduced_coefficients
 
 
 
@@ -353,9 +321,31 @@ if __name__ == "__main__":
         print(f"Processing file: {filename}")
         
         circuit, translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
+        nonCompDepth = circuit.depth()
+        nonCompGateCount = sum(circuit.count_ops().values())
+        
         print("Original circuit:")
         print(circuit.draw())
         plt.show()
+
+            # 3) copy the circuit, add the measurement and simulate with the BasicProvider;
+        qc_m = circuit.copy()         # copy the circuit
+        qc_m.measure_all()       # add the measurement
+
+        result = backend_basic.run(qc_m).result()
+        counts = result.get_counts()
+        plot_histogram(counts)
+        # Generate all possible binary outcomes for num_qubits
+        all_states = [''.join(state) for state in product('01', repeat=num_qubits)]
+
+        # Calculate probabilities, including zero counts
+        total_shots = sum(counts.values())
+        probabilities = [counts.get(state, 0) / total_shots for state in all_states]
+  
+        
+        # # simulate it with Statevector
+        # statevector = Statevector(circuit)
+        # print(f"Initial statevector: {statevector}")
         
         # Salvare la topologia delle connessioni. backend.instructions dizionario 
         # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
@@ -366,33 +356,66 @@ if __name__ == "__main__":
         
         # Trivial mapping (e lo manteniamo fino alla fine)
         mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
-        
+        #mapping = {i: i for i in range(max_qubits)}  # Mappatura logico → fisico iniziale
         
         # Processa il circuito
         compiled_circuit = QuantumCircuit(max_qubits)
-        
+        tot_swaps = 0   # Additional swaps required for routing
         print("Processing the circuit...")
         for instr in translated_circuit.data:
             gate = instr.operation  # Access the gate operation
             qargs = instr.qubits  # Access the qubits
-            mapping = apply_gate(gate, qargs, mapping, connections, compiled_circuit)
+            mapping, tot_swaps = apply_gate(gate, qargs, mapping, connections, compiled_circuit, tot_swaps)
 
+        print(f"Final mapping: {mapping}")
+        
         print("Compiled circuit:")
         print(compiled_circuit.draw())
         plt.show()
-
-        ###TO DO # Calcola e salva i risultati
-        #save_results(name, circuit, compiled_circuit, backend, num_qubits, max_qubits)
-        # Fidelity check: abbiamo fatto un buon lavoro?
-        # Validate it using the provided qasm file, using the fidelity compared to the not compiled circuit results.
         
-        # Basta misurare i primi (o ultimi?) num_qubits  [trivial mapping]
-        # Fidelity check
+        depth = compiled_circuit.depth()
+        gateCount = sum(compiled_circuit.count_ops().values())
+        
+        
+        # statevector2 = Statevector(compiled_circuit)
+        # print(f"Compiled statevector: {statevector2}")
+        
+        # reduced_statevector = extract_significant_terms(statevector2, mapping, num_qubits)
+        # print(f"Compiled and reduced statevector: {statevector2}")
+        
+        # # To compute fidelity between two statevectors
+        # statevector_fidelity = np.abs(statevector.inner(statevector2))
+        # print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
+        
+        # # significant_qubits = []
+        # # for i in range(num_qubits):
+        # #     significant_qubits.append(mapping.index(i))
+        
+        # Measure 
+        compiled_circuit.measure_all()      # add the measurement
 
-    # Salvare i risultati in un file CSV
-    df = pd.DataFrame(results)
-    df.to_csv(csv_file, index=False)
-    print(f"Results saved to {csv_file}")
+        result2 = backend.run(compiled_circuit).result()
+        counts2 = result.get_counts()
+
+
+        # Calculate probabilities, including zero counts
+        total_shots2 = sum(counts.values())
+        probabilities2 = [counts.get(state, 0) / total_shots for state in all_states]
+    
+        prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
+        
+        # Aggiungi i risultati direttamente al DataFrame
+        df.loc[len(df)] = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity] # ,statevector_fidelity]  #, ]
+
+    # Verifica se il file esiste ed è vuoto
+    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
+        # Se il file non esiste o è vuoto, scrivi l'header
+        df.to_csv(csv_file, mode='w', header=True, index=False)
+    else:
+        # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
+        df.to_csv(csv_file, mode='a', header=False, index=False)
+
+    print("Data successfully saved in the file es02.csv")
         
             
     # Compute total time of execution

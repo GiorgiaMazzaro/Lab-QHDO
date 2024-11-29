@@ -19,10 +19,10 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
-file_names = ["adder_small.qasm"]
+#file_names = ["adder_small.qasm"]
 
 # Define the header for the DataFrame
-header = ["Backend", "Name of the circuit", "Optimization Level", "Depth", "Gate Count", "Statevector Fidelity", "Probability Fidelity"]
+header = ["Name of the circuit", "Backend", "Optimization Level", "Depth", "Gate Count", "Statevector Fidelity", "Probability Fidelity"]
 
 # Create a DataFrame to store the results
 df = pd.DataFrame(columns=header)
@@ -79,7 +79,7 @@ for name in file_names:
     print(f"Gate count (non-compiled): {nonCompGateCount}")
     
     # Add the non-compiled results to the DataFrame
-    df.loc[len(df)] = ["Basic Simulator", name, 'non compiled', nonCompDepth, nonCompGateCount, None, None]
+    df.loc[len(df)] = [name, "Basic Simulator", 'non compiled', nonCompDepth, nonCompGateCount, None, None]
 
     # 5) compile the circuit considering as basis gates: ry, rx, rz, cx, considering as optimization levels [0, 1, 2, 3] and compute:
     optimization_levels = [0, 1, 2, 3]
@@ -117,7 +117,7 @@ for name in file_names:
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
 
         # Add results to the DataFrame
-        df.loc[len(df)] = ['Basic Simulator', name, level, depth, gateCount, statevector_fidelity, prob_fidelity]      
+        df.loc[len(df)] = [name, 'Basic Simulator', level, depth, gateCount, statevector_fidelity, prob_fidelity]      
         
 
     # # 6) compile the circuit considering the FakeGuadalupeV2, considering as optimization levels [0, 1, 2, 3] and compute
@@ -165,9 +165,6 @@ for name in file_names:
     # # Save results in the list
     # circuit_results.append([name, level, nonCompDepth, nonCompGateCount, depth, gateCount, fidelity, prob_fidelity])
 
-# Write the DataFrame to CSV file
-df.to_csv(csv_file, mode='a', header=not os.path.exists(csv_file), index=False)
-print("Data successfully saved in the file es01.csv")
 
 
 # Compute total time of execution
