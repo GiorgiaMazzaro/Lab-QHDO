@@ -26,7 +26,7 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
-file_names = ["adder_medium.qasm"]
+file_names = ["adder_small.qasm"]
 
 csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02.csv'
 
@@ -38,8 +38,8 @@ header = [
     "Compiled Depth",
     "Compiled Gate Count",
     "Additional swaps (x routing)",
-    "Probability Fidelity"
-    # "Statevector Fidelity",
+    "Probability Fidelity",
+    "Statevector Fidelity",
 ]
 df = pd.DataFrame(columns=header)
 
@@ -123,8 +123,9 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit �
     # Carica il circuito dal file QASM
     circuit = QuantumCircuit.from_qasm_file(qasm_file)
     num_qubits = circuit.num_qubits      # è già un parametro di dominio pubblico, che posso chiamare anche fuori dalla funzione?
+    
     # Crea un nuovo circuito con il numero di qubit del backend
-    translated_circuit = QuantumCircuit(max_qubits)
+    translated_circuit = QuantumCircuit(num_qubits)
 
     # Itera sui gate nel circuito
     for instruction in circuit.data:
@@ -314,12 +315,13 @@ if __name__ == "__main__":
         circuit, translated_circuit, num_qubits = process_qasm_file(filename, native_gates)
         nonCompDepth = circuit.depth()
         nonCompGateCount = sum(circuit.count_ops().values())
+        statevector = Statevector(circuit)
         
         print("Original circuit:")
         print(circuit.draw())
         plt.show()
 
-            # 3) copy the circuit, add the measurement and simulate with the BasicProvider;
+        # 3) copy the circuit, add the measurement and simulate with the BasicProvider;
         qc_m = circuit.copy()         # copy the circuit
         qc_m.measure_all()       # add the measurement
 
@@ -333,23 +335,15 @@ if __name__ == "__main__":
         total_shots = sum(counts.values())
         probabilities = [counts.get(state, 0) / total_shots for state in all_states]
   
-        
-        # # simulate it with Statevector
-        # statevector = Statevector(circuit)
-        # print(f"Initial statevector: {statevector}")
-        
         # Salvare la topologia delle connessioni. backend.instructions dizionario 
         # ---> Una lista di liste: in posizione i salvi tutti gli elementi connessi a quel qubit fisico
-        connections = allowedConnections(backend)     # il grafo è uguale per ogni singola operazione? probabilmente i single qubit erano possibili in ogni posizione. A noi serve capire
-        # print(f"Connections")
-        # for i in range(len(connections)):
-        #     print(f"Nodo {i}: {connections[i]}")
-        
-        # Trivial mapping (e lo manteniamo fino alla fine)
-        mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
+        connections = allowedConnections(backend)   
+      
+        # Trivial mapping
+        mapping = list(range(num_qubits))  # Logical-to-physical qubit mapping
         
         # Processa il circuito
-        compiled_circuit = QuantumCircuit(max_qubits)
+        compiled_circuit = QuantumCircuit(num_qubits)
         tot_swaps = 0   # Additional swaps required for routing
         print("Processing the circuit...")
         for instr in translated_circuit.data:
@@ -366,37 +360,31 @@ if __name__ == "__main__":
         depth = compiled_circuit.depth()
         gateCount = sum(compiled_circuit.count_ops().values())
         
-        
-        # statevector2 = Statevector(compiled_circuit)
-        # print(f"Compiled statevector: {statevector2}")
-        
-        # reduced_statevector = extract_significant_terms(statevector2, mapping, num_qubits)
-        # print(f"Compiled and reduced statevector: {statevector2}")
-        
-        # # To compute fidelity between two statevectors
-        # statevector_fidelity = np.abs(statevector.inner(statevector2))
-        # print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
-        
-        # # significant_qubits = []
-        # # for i in range(num_qubits):
-        # #     significant_qubits.append(mapping.index(i))
-        
-        # Measure 
+        statevector2 = Statevector(compiled_circuit)
+        print("Stavector: \n", statevector)
+        print("Stavector compiled: \n", statevector2)
+         # Measure 
         compiled_circuit.measure_all()      # add the measurement
 
         result2 = backend.run(compiled_circuit).result()
         counts2 = result.get_counts()
 
-
         # Calculate probabilities, including zero counts
+        num_qubits2 = compiled_circuit.num_qubits
         total_shots2 = sum(counts2.values())
-        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states]
+        all_states2 = [''.join(state) for state in product('01', repeat=num_qubits2)]
+        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states2]
+        print("Counts original: ", counts)
         print(f"Counts of the compiled circuit: \n{counts2}")
-    
+                
+        # To compute fidelity between two statevectors
+        statevector_fidelity = np.abs(statevector.inner(statevector2))
+        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
         prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
-        
+        print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
+       
         # Aggiungi i risultati direttamente al DataFrame
-        df.loc[len(df)] = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity] # ,statevector_fidelity]  #, ]
+        df.loc[len(df)] = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity,statevector_fidelity] 
 
     # Verifica se il file esiste ed è vuoto
     if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
