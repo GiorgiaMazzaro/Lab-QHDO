@@ -27,7 +27,7 @@ header = ["Name of the circuit", "Backend", "Optimization Level", "Depth", "Gate
 df = pd.DataFrame(columns=header)
 
 # Define the file path for the CSV
-csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es01-new.csv'
+csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es01-stepBystep.csv'
 
 # Verifica se il file esiste ed è vuoto
 if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
@@ -78,7 +78,9 @@ for name in file_names:
     print(f"Gate count (non-compiled): {nonCompGateCount}")
     
     # Add the non-compiled results to the DataFrame
-    df.loc[len(df)] = [name, "Basic Simulator", 'non compiled', nonCompDepth, nonCompGateCount, None, None]
+    #df.loc[len(df)] = [name, "Basic Simulator", 'non compiled', nonCompDepth, nonCompGateCount, None, None]
+    row = [name, "Basic Simulator", 'non compiled', nonCompDepth, nonCompGateCount, None, None]
+    pd.DataFrame([row], columns=header).to_csv(csv_file, mode='a', header=False, index=False)
 
     # 5) compile the circuit considering as basis gates: ry, rx, rz, cx, considering as optimization levels [0, 1, 2, 3] and compute:
     optimization_levels = [0, 1, 2, 3]
@@ -117,7 +119,9 @@ for name in file_names:
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
 
         # Add results to the DataFrame
-        df.loc[len(df)] = [name, 'Basic Simulator', level, depth, gateCount, statevector_fidelity, prob_fidelity]      
+        #df.loc[len(df)] = [name, 'Basic Simulator', level, depth, gateCount, statevector_fidelity, prob_fidelity] 
+        row = [name, 'Basic Simulator', level, depth, gateCount, statevector_fidelity, prob_fidelity] 
+        pd.DataFrame([row], columns=header).to_csv(csv_file, mode='a', header=False, index=False)     
         
 
     # 6) compile the circuit considering the FakeGuadalupeV2, considering as optimization levels [0, 1, 2, 3] and compute
@@ -157,16 +161,11 @@ for name in file_names:
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
 
         # Add results to the DataFrame
-        df.loc[len(df)] = [name, 'FakeGuadalupe', level, depth, gateCount, fidelity, prob_fidelity]   
+        #df.loc[len(df)] = [name, 'FakeGuadalupe', level, depth, gateCount, fidelity, prob_fidelity]
+        row = [name, 'FakeGuadalupe', level, depth, gateCount, fidelity, prob_fidelity]
+        pd.DataFrame([row], columns=header).to_csv(csv_file, mode='a', header=False, index=False)   
      
 
-# Verifica se il file esiste ed è vuoto
-if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
-    # Se il file non esiste o è vuoto, scrivi l'header
-    df.to_csv(csv_file, mode='w', header=True, index=False)
-else:
-    # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
-    df.to_csv(csv_file, mode='a', header=False, index=False)
 
 print("Data successfully saved in the file es01.csv")
 # Compute total time of execution

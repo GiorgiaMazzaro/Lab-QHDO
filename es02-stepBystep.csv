@@ -1,0 +1,2 @@
+Name of the circuit,Original Depth,Original Gate Count,Compiled Depth,Compiled Gate Count,Additional swaps (x routing),Probability Fidelity,Statevector Fidelity
+adder_small.qasm,11,23,34,45,6,1.0,0.9999999999999993

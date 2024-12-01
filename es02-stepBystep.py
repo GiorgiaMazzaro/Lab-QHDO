@@ -2,7 +2,7 @@ import numpy as np
 import math
 from qiskit import QuantumCircuit
 import matplotlib.pyplot as plt
-from qiskit.quantum_info import Statevector, state_fidelity
+from qiskit.quantum_info import Statevector
 from qiskit.providers.basic_provider import BasicProvider
 from qiskit_ibm_runtime.fake_provider import FakeGuadalupeV2
 from itertools import product
@@ -26,9 +26,9 @@ file_names = [
     "linearsolver.qasm", "phaseest.qasm", "rd84_253.qasm", 
     "sym10_262.qasm", "urf5_280.qasm"
 ]
-file_names = ["adder_small.qasm"]
+#file_names = ["adder_small.qasm"]
 
-csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02.csv'
+csv_file = '/home/qhd24_8/gr8_lab4/es01Gio/es02-stepBystep.csv'
 
 # Creazione del DataFrame iniziale
 header = [
@@ -42,7 +42,14 @@ header = [
     "Statevector Fidelity",
 ]
 df = pd.DataFrame(columns=header)
-
+# Verifica se il file esiste ed è vuoto
+if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
+    # Se il file non esiste o è vuoto, scrivi l'header
+    df.to_csv(csv_file, mode='w', header=True, index=False)
+else:
+    # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
+    df.to_csv(csv_file, mode='a', header=False, index=False)
+    
 # Backend simulato e gate nativi
 backend_basic = BasicProvider().get_backend("basic_simulator")
 backend = FakeGuadalupeV2()
@@ -53,8 +60,6 @@ max_qubits = backend.configuration().num_qubits    # Ottieni il numero di qubit 
 # Funzione che traduce i gate non nativi in una sequenza di gate nativi
 def translate_gate_to_native(gate, qargs, qc):     # gli passiamo il circuito così li applica direttamente 
     """Traduci un gate non nativo in una sequenza di gate nativi."""
-    # translated_gates = []
-    
     # Determina il numero di qubit (assumiamo che tutti i qubit siano nel circuito)
     num_qubits = len(qargs)
  
@@ -179,7 +184,7 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit, tot_swaps):
     if len(qargs) == 1:
         # Single-qubit operation
         physical_qubit = mapping[qargs[0]._index]
-        print(f"Applying {gate.name} on physical qubit {physical_qubit}.")
+        # print(f"Applying {gate.name} on physical qubit {physical_qubit}.")
         compiled_circuit.append(gate, [physical_qubit])  # Aggiungi l'operazione al circuito compilato
     
     elif len(qargs) == 2:
@@ -191,22 +196,22 @@ def apply_gate(gate, qargs, mapping, connections, compiled_circuit, tot_swaps):
         
         if isConnected(connections, physical_q1, physical_q2):
             # Se i qubit fisici sono connessi, applica direttamente
-            print(f"Applying {gate.name} on physical qubits {physical_q1} and {physical_q2}.")
+            # print(f"Applying {gate.name} on physical qubits {physical_q1} and {physical_q2}.")
             compiled_circuit.append(gate, [physical_q1, physical_q2])  # Aggiungi il gate al circuito compilato
         else:
             # Se i qubit fisici non sono connessi, esegui il routing
-            print(f"Routing required for {gate.name} between logical qubit {logical_q1} (mapped to physical {physical_q1}) and logical qubit {logical_q2} (mapped to physical {physical_q2}).")
+            #print(f"Routing required for {gate.name} between logical qubit {logical_q1} (mapped to physical {physical_q1}) and logical qubit {logical_q2} (mapped to physical {physical_q2}).")
             tot_swaps += applyRouting(connections, physical_q1, physical_q2, mapping, compiled_circuit)
             # Aggiorna mapping e ottieni i nuovi qubit fisici          
             routed_q1 = mapping[logical_q1]
             routed_q2 = mapping[logical_q2]
-            print(f"Routed easily following the map chat {routed_q1} {routed_q2}")
+            #print(f"Routed easily following the map chat {routed_q1} {routed_q2}")
             
             # Applica il gate dopo il routing
-            print(f"Applying {gate.name} on updated physical qubits {routed_q1} and {routed_q2}.")
+            #print(f"Applying {gate.name} on updated physical qubits {routed_q1} and {routed_q2}.")
             compiled_circuit.append(gate, [routed_q1, routed_q2])  # Aggiungi il gate al circuito compilato
             
-            print(f"Adesso il mapping è: {mapping}")
+            #print(f"Adesso il mapping è: {mapping}")
     
     else:
         raise ValueError(f"Unsupported gate with {len(qargs)} qubits: {gate.name}")
@@ -274,11 +279,32 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
         logic_qbit_j = mapping.index(qubit_j)
         logic_qbit_k = mapping.index(qubit_k)
         mapping[logic_qbit_j], mapping[logic_qbit_k] = mapping[logic_qbit_k], mapping[logic_qbit_j]
-        
-        print(f"Iteration {i}. Update mapping: {mapping}")   
+        #print(f"Iteration {i}. Update mapping: {mapping}")   
 
     return n_swaps
 
+def reduceStatevector(statevector, mapping, num_qubits):
+    num_states = 2**num_qubits     # Numero totale di stati possibili
+    data = [0+0j] * num_states    # Array per memorizzare lo statevector ridotto
+    
+    # Per ogni stato non nullo dello statevector 
+    tot_states = 2**max_qubits
+    for index in range(tot_states):
+        state = statevector[index]
+        if state != 0:      # Considera solo stati non nulli
+            # Calcola il nuovo indice ridotto in base al mapping
+            new_index = 0
+            for logical_qubit in range(num_qubits):
+                physical_qubit = mapping[logical_qubit]  # Mappatura da logico a fisico
+                if (index >> physical_qubit) & 1:       # Controlla il bit corrispondente
+                    new_index += 2**logical_qubit       # Aggiorna l'indice ridotto
+            
+            # Aggiorna il valore nello statevector ridotto
+            data[new_index] += statevector[index]
+            #data[new_index] += statevector.data[index] 
+
+    # Restituisce il nuovo statevector con la permutazione applicata
+    return Statevector(data, dims=[2] * num_qubits)
 
 # Main
 if __name__ == "__main__":
@@ -293,8 +319,8 @@ if __name__ == "__main__":
         statevector = Statevector(circuit)
         
         print("Original circuit:")
-        print(circuit.draw())
-        plt.show()
+        #print(circuit.draw())
+        #plt.show()
 
         # 3) copy the circuit, add the measurement and simulate with the BasicProvider;
         qc_m = circuit.copy()         # copy the circuit
@@ -315,10 +341,10 @@ if __name__ == "__main__":
         connections = allowedConnections(backend)   
       
         # Trivial mapping
-        mapping = list(range(num_qubits))  # Logical-to-physical qubit mapping
+        mapping = list(range(max_qubits))  # Logical-to-physical qubit mapping
         
         # Processa il circuito
-        compiled_circuit = QuantumCircuit(num_qubits)
+        compiled_circuit = QuantumCircuit(max_qubits)
         tot_swaps = 0   # Additional swaps required for routing
         print("Processing the circuit...")
         for instr in translated_circuit.data:
@@ -328,17 +354,25 @@ if __name__ == "__main__":
 
         print(f"Final mapping: {mapping}")
         
-        print("Compiled circuit:")
-        print(compiled_circuit.draw())
-        plt.show()
+        # print("Compiled circuit:")
+        #print(compiled_circuit.draw())
+        # plt.show()
         
         depth = compiled_circuit.depth()
         gateCount = sum(compiled_circuit.count_ops().values())
         
         statevector2 = Statevector(compiled_circuit)
-        print("Stavector: \n", statevector)
+        # print("Stavector: \n", statevector)
         print("Stavector compiled: \n", statevector2)
-         # Measure 
+
+        statevector3 = reduceStatevector(statevector2, mapping, num_qubits)
+        print("Stavector compiled and reduced: \n", statevector3)
+        
+        #statevector_fidelity = None
+        statevector_fidelity = np.abs(statevector.inner(statevector3))
+        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
+        
+        # Measure  
         compiled_circuit.measure_all()      # add the measurement
 
         result2 = backend.run(compiled_circuit).result()
@@ -348,26 +382,26 @@ if __name__ == "__main__":
         num_qubits2 = compiled_circuit.num_qubits
         total_shots2 = sum(counts2.values())
         all_states2 = [''.join(state) for state in product('01', repeat=num_qubits2)]
-        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states2]
+        probabilities2 = [counts2.get(state, 0) / total_shots2 for state in all_states]
         print("Counts original: ", counts)
         print(f"Counts of the compiled circuit: \n{counts2}")
                 
         # To compute fidelity between two statevectors
-        statevector_fidelity = np.abs(statevector.inner(statevector2))
-        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
         prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
        
         # Aggiungi i risultati direttamente al DataFrame
-        df.loc[len(df)] = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity,statevector_fidelity] 
+        #df.loc[len(df)] = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity, statevector_fidelity]
+        row = [name, nonCompDepth, nonCompGateCount, depth, gateCount, tot_swaps, prob_fidelity, statevector_fidelity] 
+        pd.DataFrame([row], columns=header).to_csv(csv_file, mode='a', header=False, index=False)
 
-    # Verifica se il file esiste ed è vuoto
-    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
-        # Se il file non esiste o è vuoto, scrivi l'header
-        df.to_csv(csv_file, mode='w', header=True, index=False)
-    else:
-        # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
-        df.to_csv(csv_file, mode='a', header=False, index=False)
+    # # Verifica se il file esiste ed è vuoto
+    # if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
+    #     # Se il file non esiste o è vuoto, scrivi l'header
+    #     df.to_csv(csv_file, mode='w', header=True, index=False)
+    # else:
+    #     # Se il file esiste ed ha già dei dati, scrivi solo i dati senza l'header
+    #     df.to_csv(csv_file, mode='a', header=False, index=False)
 
     print("Data successfully saved in the file es02.csv")
         
