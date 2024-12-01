@@ -259,13 +259,19 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
     
     # Fai lo swap lungo il percorso
     for i in range(len(path) - 2):   # con -2 (anziché -1) mi sto fermando ad un "vicino del target"
+        qubit_j = path[i]
+        qubit_k = path[i+1]
         # Aggiungi SWAP tra i qubit lungo il percorso
-        compiled_circuit.swap(path[i], path[i + 1])   # swap ---> native gates
+        # compiled_circuit.swap(path[i], path[i + 1])   # swap ---> native gates
+        
+        # Implementa lo swap con CX
+        compiled_circuit.cx(qubit_j, qubit_k)
+        compiled_circuit.cx(qubit_k, qubit_j)
+        compiled_circuit.cx(qubit_j, qubit_k)   # swap non è un native gate, ma cx sì
+        
         n_swaps += 1
         
         # Aggiorna il mapping (swap indici)
-        qubit_j = path[i]
-        qubit_k = path[i+1]
         logic_qbit_j = mapping.index(qubit_j)
         logic_qbit_k = mapping.index(qubit_k)
         mapping[logic_qbit_j], mapping[logic_qbit_k] = mapping[logic_qbit_k], mapping[logic_qbit_j]
@@ -378,8 +384,9 @@ if __name__ == "__main__":
         print(f"Counts of the compiled circuit: \n{counts2}")
                 
         # To compute fidelity between two statevectors
-        statevector_fidelity = np.abs(statevector.inner(statevector2))
-        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
+        # statevector_fidelity = np.abs(statevector.inner(statevector2))
+        # print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
+        statevector_fidelity = None
         prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
        
