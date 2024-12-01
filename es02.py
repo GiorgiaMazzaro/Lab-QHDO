@@ -125,7 +125,7 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit √
     num_qubits = circuit.num_qubits      # √® gi√† un parametro di dominio pubblico, che posso chiamare anche fuori dalla funzione?
     
     # Crea un nuovo circuito con il numero di qubit del backend
-    translated_circuit = QuantumCircuit(num_qubits)
+    translated_circuit = QuantumCircuit(max_qubits)
 
     # Itera sui gate nel circuito
     for instruction in circuit.data:
@@ -146,10 +146,9 @@ def process_qasm_file(qasm_file, native_gates):   # il numero massimo di qubit √
 def allowedConnections(backend):
     """Crea una lista di liste per rappresentare le connessioni tra i qubit fisici."""
     coupling_map = backend.configuration().coupling_map  # Ottieni la mappa delle connessioni
-    num_qubits = backend.configuration().num_qubits      # Numero di qubit nel backend
 
     # Inizializza la lista delle connessioni con set per rimuovere i duplicati automaticamente
-    connections = [set() for _ in range(num_qubits)]
+    connections = [set() for _ in range(max_qubits)]
 
     for edge in coupling_map:
         q1, q2 = edge
@@ -280,36 +279,6 @@ def applyRouting(connections, q1, q2, mapping, compiled_circuit):
 
     return n_swaps
 
-def extract_significant_terms(statevector, mapping, num_qubits):
-    """
-    Riduci uno Statevector a un array con termini solo per i qubit significativi.
-
-    Parameters:
-        - statevector: Statevector completo.
-        - mapping: Lista con mappatura dei qubit logici su quelli fisici.
-        - num_qubits: Numero di qubit logici significativi.
-
-    Returns:
-        - Array numpy dei coefficienti ridotti.
-    """
-    significant_qubits = []
-    for i in range(num_qubits):
-        significant_qubits.append(mapping.index(i))
-
-    # Ottieni tutte le combinazioni possibili per i qubit significativi
-    reduced_basis_states = []
-    for i in range(2 ** num_qubits):
-        # Stato base significativo in binario
-        reduced_basis = format(i, f'0{num_qubits}b')
-        full_basis = ['0'] * statevector.num_qubits  # Inizializza stato completo
-        for idx, qubit in enumerate(significant_qubits):
-            full_basis[qubit] = reduced_basis[idx]  # Mappa nel vettore completo
-        reduced_basis_states.append(''.join(full_basis))
-
-    # Converti lo stato base in un indice per estrarre i coefficienti
-    reduced_coefficients = np.array([statevector[int(reduced_state, 2)] for reduced_state in reduced_basis_states])
-
-    return reduced_coefficients
 
 # Main
 if __name__ == "__main__":
@@ -384,9 +353,8 @@ if __name__ == "__main__":
         print(f"Counts of the compiled circuit: \n{counts2}")
                 
         # To compute fidelity between two statevectors
-        # statevector_fidelity = np.abs(statevector.inner(statevector2))
-        # print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
-        statevector_fidelity = None
+        statevector_fidelity = np.abs(statevector.inner(statevector2))
+        print(f"Fidelity between non compiled and compiled statevectors: {statevector_fidelity} \n")
         prob_fidelity = (np.sum(np.sqrt(probabilities) * np.sqrt(probabilities2)))**2
         print(f"Fidelity between non compiled and compiled probabilities: {prob_fidelity} \n")
        
